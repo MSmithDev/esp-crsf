@@ -38,6 +38,7 @@ static int uart_num = 1;
 static QueueHandle_t uart_queue;
 crsf_channels_t received_channels = {0};
 crsf_battery_t received_battery = {0};
+crsf_link_statistics_t received_link_statistics = {0};
 
 static void rx_task(void *arg)
 {
@@ -68,12 +69,20 @@ static void rx_task(void *arg)
           payload[i] = dtmp[i + 3];
         }
 
-        if (type == CRSF_TYPE_CHANNELS)
+ 
+        switch (type)
         {
+          case CRSF_TYPE_CHANNELS:
+            xSemaphoreTake(xMutex, portMAX_DELAY);
+            received_channels = *(crsf_channels_t *)payload;
+            xSemaphoreGive(xMutex);
+            break;
 
-          xSemaphoreTake(xMutex, portMAX_DELAY);
-          received_channels = *(crsf_channels_t *)payload;
-          xSemaphoreGive(xMutex);
+          case CRSF_TYPE_LINK_STATISTICS:
+            xSemaphoreTake(xMutex, portMAX_DELAY);
+            received_link_statistics = *(crsf_link_statistics_t *)payload;
+            xSemaphoreGive(xMutex);
+            break;
         }
       }
     }
@@ -169,4 +178,12 @@ void CRSF_send_gps_data(crsf_dest_t dest, crsf_gps_t *payload)
   payload_proc->altitude = __bswap16(payload_proc->altitude);
 
   CRSF_send_payload(payload_proc, dest, CRSF_TYPE_GPS, sizeof(crsf_gps_t));
+}
+
+crsf_link_statistics_t CRSF_get_link_statistics()
+{
+  xSemaphoreTake(xMutex, portMAX_DELAY);
+  crsf_link_statistics_t stats = received_link_statistics;
+  xSemaphoreGive(xMutex);
+  return stats;
 }

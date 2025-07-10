@@ -10,15 +10,13 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 
-
-
 /**
  * @brief struct to hold the configuration of the CRSF
- * 
+ *
  * @param uart_num the uart controller number to use
  * @param tx_pin the tx pin of the esp uart
  * @param rx_pin the rx pin of the esp uart
- * 
+ *
  */
 typedef struct
 {
@@ -29,8 +27,8 @@ typedef struct
 
 /**
  * @brief structure for handling 16 channels of data, 11 bits each. Which channel is used depends on transmitter setting
- * 
- * @return typedef struct 
+ *
+ * @return typedef struct
  */
 typedef struct __attribute__((packed))
 {
@@ -54,12 +52,12 @@ typedef struct __attribute__((packed))
 
 /**
  * @brief struct for battery data telemetry
- * 
+ *
  * @param voltage the voltage of the battery in 10*V (1 = 0.1V)
  * @param current the current of the battery in 10*A (1 = 0.1A)
  * @param capacity the capacity of the battery in mah
  * @param remaining the remaining percentage of the battery
- * 
+ *
  */
 typedef struct __attribute__((packed))
 {
@@ -71,24 +69,53 @@ typedef struct __attribute__((packed))
 
 /**
  * @brief struct for GPS data telemetry
- * 
+ *
  * @param latitude int32 the latitude of the GPS in degree / 10,000,000 big endian
  * @param longitude int32 the longitude of the GPS in degree / 10,000,000 big endian
  * @param groundspeed uint16 the groundspeed of the GPS in km/h / 10 big endian
  * @param heading uint16 the heading of the GPS in degree/100 big endian
  * @param altitude uint16 the altitude of the GPS in meters, +1000m big endian
  * @param satellites uint8 the number of satellites
- * 
+ *
  */
 typedef struct __attribute__((packed))
 {
-    int32_t latitude;   // degree / 10,000,000 big endian
-    int32_t longitude;  // degree / 10,000,000 big endian
-    uint16_t groundspeed;  // km/h / 10 big endian
-    uint16_t heading;   // GPS heading, degree/100 big endian
-    uint16_t altitude;  // meters, +1000m big endian
-    uint8_t satellites; // satellites
+    int32_t latitude;     // degree / 10,000,000 big endian
+    int32_t longitude;    // degree / 10,000,000 big endian
+    uint16_t groundspeed; // km/h / 10 big endian
+    uint16_t heading;     // GPS heading, degree/100 big endian
+    uint16_t altitude;    // meters, +1000m big endian
+    uint8_t satellites;   // satellites
 } crsf_gps_t;
+
+/**
+ * @brief struct for link statistics received from the transmitter
+ * @param up_rssi_ant1 Uplink RSSI Antenna 1 (dBm * -1)
+ * @param up_rssi_ant2 Uplink RSSI Antenna 2 (dBm * -1)
+ * @param up_link_quality Uplink Package success rate / Link quality (%)
+ * @param up_snr Uplink SNR (dB)
+ * @param active_antenna number of currently best antenna
+ * @param rf_profile enum {4fps = 0 , 50fps, 150fps}
+ * @param up_rf_power enum {0mW = 0, 10mW, 25mW, 100mW,
+ * 
+ * @param down_rssi Downlink RSSI (dBm * -1)
+ * @param down_link_quality Downlink Package success rate / Link quality (%)
+ * @param down_snr Downlink SNR (dB)
+ */
+typedef struct __attribute__((packed))
+{
+    uint8_t up_rssi_ant1;      // Uplink RSSI Antenna 1 (dBm * -1)
+    uint8_t up_rssi_ant2;      // Uplink RSSI Antenna 2 (dBm * -1)
+    uint8_t up_link_quality;   // Uplink Package success rate / Link quality (%)
+    int8_t up_snr;             // Uplink SNR (dB)
+    uint8_t active_antenna;    // number of currently best antenna
+    uint8_t rf_profile;        // enum {4fps = 0 , 50fps, 150fps}
+    uint8_t up_rf_power;       // enum {0mW = 0, 10mW, 25mW, 100mW,
+                               
+    uint8_t down_rssi;         // Downlink RSSI (dBm * -1)
+    uint8_t down_link_quality; // Downlink Package success rate / Link quality (%)
+    int8_t down_snr;           // Downlink SNR (dB)
+} crsf_link_statistics_t;
 
 typedef enum
 {
@@ -96,7 +123,8 @@ typedef enum
     CRSF_TYPE_BATTERY = 0x08,
     CRSF_TYPE_GPS = 0x02,
     CRSF_TYPE_ALTITUDE = 0x09,
-    CRSF_TYPE_ATTITUDE = 0x1E
+    CRSF_TYPE_ATTITUDE = 0x1E,
+    CRSF_TYPE_LINK_STATISTICS = 0x14
 } crsf_type_t;
 
 typedef enum
@@ -107,30 +135,37 @@ typedef enum
 
 /**
  * @brief setup CRSF communication
- * 
+ *
  * @param config pointer to config of CRSF communication
  */
 void CRSF_init(crsf_config_t *config);
 
 /**
  * @brief copy latest 16 channel data received to the pointer
- * 
+ *
  * @param channels pointer to receiver buffer
  */
 void CRSF_receive_channels(crsf_channels_t *channels);
 
 /**
  * @brief send battery data telemetry
- * 
+ *
  * @param dest destination (to send back to transmitter destination is CRSF_DEST_FC)
  * @param payload pointer to the battery data
  */
-void CRSF_send_battery_data(crsf_dest_t dest, crsf_battery_t* payload);
+void CRSF_send_battery_data(crsf_dest_t dest, crsf_battery_t *payload);
 
 /**
  * @brief send gps data telemetry
- * 
+ *
  * @param dest destination (to send back to transmitter destination is CRSF_DEST_FC)
  * @param payload pointer to the gps data
  */
-void CRSF_send_gps_data(crsf_dest_t dest, crsf_gps_t* payload);
+void CRSF_send_gps_data(crsf_dest_t dest, crsf_gps_t *payload);
+
+/**
+ * @brief get the latest link statistics received
+ *
+ * @return crsf_link_stats_rx_t the latest link statistics received
+ */
+crsf_link_statistics_t CRSF_get_link_statistics();
