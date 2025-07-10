@@ -180,6 +180,52 @@ void CRSF_send_gps_data(crsf_dest_t dest, crsf_gps_t *payload)
   CRSF_send_payload(payload_proc, dest, CRSF_TYPE_GPS, sizeof(crsf_gps_t));
 }
 
+inline uint32_t bswap24(uint32_t value) {
+    // Only swap the lower 24 bits
+    return ((value & 0x0000FF) << 16) | 
+           ((value & 0x00FF00)) | 
+           ((value & 0xFF0000) >> 16);
+}
+
+void CRSF_send_rpm_values(crsf_dest_t dest, uint8_t source_id, int32_t *rpm_values, size_t num_values)
+{
+    // Limit to maximum supported RPM values
+    if (num_values > 19) {
+        num_values = 19;
+    }
+    
+    // Allocate memory for the complete packet
+    size_t packet_size = sizeof(crsf_rpm_t) + (num_values * sizeof(int24_t));
+    crsf_rpm_t *rpm_packet = malloc(packet_size);
+    
+    // Set source ID
+    rpm_packet->rpm_source_id = source_id;
+    
+    // Convert and copy RPM values
+    for (size_t i = 0; i < num_values; i++) {
+        rpm_packet->rpm_value[i] = int32_to_int24(bswap24(rpm_values[i]));
+    }
+    
+    // Send the data
+    CRSF_send_payload(rpm_packet, dest, CRSF_TYPE_RPM, packet_size);
+    
+    // Clean up
+    free(rpm_packet);
+}
+
+void CRSF_send_temp_data(crsf_dest_t dest, crsf_temp_t *payload, size_t num_temps)
+{
+  // Calculate the actual payload size
+  size_t payload_size = sizeof(uint8_t) + (num_temps * sizeof(int16_t));
+  
+  // Process endianness for each temperature value
+  for (size_t i = 0; i < num_temps; i++) {
+    payload->temp_value[i] = __bswap16(payload->temp_value[i]);
+  }
+
+  CRSF_send_payload(payload, dest, CRSF_TYPE_TEMP, payload_size);
+}
+
 crsf_link_statistics_t CRSF_get_link_statistics()
 {
   xSemaphoreTake(xMutex, portMAX_DELAY);
