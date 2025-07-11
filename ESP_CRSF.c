@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include "ESP_CRSF.h"
 #include "byteswap.h"
+#include "freertos/timers.h"
+
 
 #define RX_BUF_SIZE 1024 // UART buffer size
 
@@ -40,6 +42,9 @@ crsf_channels_t received_channels = {0};
 crsf_battery_t received_battery = {0};
 crsf_link_statistics_t received_link_statistics = {0};
 
+static bool failsafe_flag = true; // Failsafe flag
+static TimerHandle_t failsafe_timer = NULL; // Watchdog timer
+
 static void rx_task(void *arg)
 {
   uart_event_t event;
@@ -76,6 +81,15 @@ static void rx_task(void *arg)
             xSemaphoreTake(xMutex, portMAX_DELAY);
             received_channels = *(crsf_channels_t *)payload;
             xSemaphoreGive(xMutex);
+
+            // Reset the failsafe timer
+            if (failsafe_timer != NULL) {
+                xTimerReset(failsafe_timer, 0);
+            }
+
+            // Clear the failsafe flag
+            failsafe_flag = false;
+
             break;
 
           case CRSF_TYPE_LINK_STATISTICS:
@@ -92,31 +106,39 @@ static void rx_task(void *arg)
   vTaskDelete(NULL);
 }
 
-void CRSF_init(crsf_config_t *config)
-{
+// Timer callback to set the failsafe flag
+static void failsafe_timer_callback(TimerHandle_t xTimer) {
+    failsafe_flag = true; // Set the failsafe flag
+}
 
-  generate_CRC(0xd5);
+void CRSF_init(crsf_config_t *config) {
+    generate_CRC(0xd5);
 
-  uart_num = config->uart_num;
+    uart_num = config->uart_num;
 
-  // begin uart communication with RX
-  uart_config_t uart_config = {
-      .baud_rate = 420000,
-      .data_bits = UART_DATA_8_BITS,
-      .parity = UART_PARITY_DISABLE,
-      .stop_bits = UART_STOP_BITS_1,
-      .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+    // Begin UART communication with RX
+    uart_config_t uart_config = {
+        .baud_rate = 420000,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
+    };
+    uart_param_config(config->uart_num, &uart_config);
+    uart_set_pin(uart_num, config->tx_pin, config->rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    ESP_ERROR_CHECK(uart_driver_install(uart_num, RX_BUF_SIZE, RX_BUF_SIZE, 10, &uart_queue, 0));
 
-  };
-  uart_param_config(config->uart_num, &uart_config);
-  uart_set_pin(uart_num, config->tx_pin, config->rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-  // Install UART driver
-  ESP_ERROR_CHECK(uart_driver_install(uart_num, RX_BUF_SIZE, RX_BUF_SIZE, 10, &uart_queue, 0));
+    // Create semaphore
+    xMutex = xSemaphoreCreateMutex();
 
-  // create semaphore
-  xMutex = xSemaphoreCreateMutex();
-  // create task
-  xTaskCreate(rx_task, "uart_rx_task", 1024 * 4, NULL, configMAX_PRIORITIES - 1, NULL);
+    // Create task
+    xTaskCreate(rx_task, "uart_rx_task", 1024 * 4, NULL, configMAX_PRIORITIES - 1, NULL);
+
+    // Create and start the failsafe timer
+    failsafe_timer = xTimerCreate("FailsafeTimer", pdMS_TO_TICKS(500), pdFALSE, NULL, failsafe_timer_callback);
+    if (failsafe_timer != NULL) {
+        xTimerStart(failsafe_timer, 0);
+    }
 }
 
 // receive uart data frame
@@ -136,22 +158,21 @@ void CRSF_receive_channels(crsf_channels_t *channels)
  */
 void CRSF_send_payload(const void *payload, crsf_dest_t destination, crsf_type_t type, uint8_t payload_length)
 {
-  // The +4 is to account for the two bytes on both ends of the packet 2+[payload_length]+2
-  uint8_t packet[payload_length + 4]; // payload + dest + len + type + crc
+    // The +4 accounts for the two bytes on both ends of the packet: 2 + [payload_length] + 2
+    uint8_t packet[payload_length + 4];
 
-  packet[0] = destination;
-  packet[1] = payload_length + 2; // size of payload + type + crc
-  packet[2] = type;
+    packet[0] = destination;
+    packet[1] = payload_length + 2; // Size of payload + type + CRC
+    packet[2] = type;
 
-  memcpy(&packet[3], payload, payload_length);
+    memcpy(&packet[3], payload, payload_length);
 
-  // calculate crc
-  unsigned char checksum = crc8(&packet[2], payload_length + 1);
+    // Calculate CRC
+    unsigned char checksum = crc8(&packet[2], payload_length + 1);
+    packet[payload_length + 3] = checksum;
 
-  packet[payload_length + 3] = checksum;
-
-  // send frame
-  uart_write_bytes(uart_num, &packet, payload_length + 4);
+    // Send frame
+    uart_write_bytes(uart_num, packet, payload_length + 4);
 }
 
 void CRSF_send_battery_data(crsf_dest_t dest, crsf_battery_t *payload)
@@ -181,7 +202,7 @@ void CRSF_send_gps_data(crsf_dest_t dest, crsf_gps_t *payload)
 }
 
 inline uint32_t bswap24(uint32_t value) {
-    // Only swap the lower 24 bits
+    // Swap only the lower 24 bits
     return ((value & 0x0000FF) << 16) | 
            ((value & 0x00FF00)) | 
            ((value & 0xFF0000) >> 16);
@@ -193,37 +214,42 @@ void CRSF_send_rpm_values(crsf_dest_t dest, uint8_t source_id, int32_t *rpm_valu
     if (num_values > 19) {
         num_values = 19;
     }
-    
+
     // Allocate memory for the complete packet
     size_t packet_size = sizeof(crsf_rpm_t) + (num_values * sizeof(int24_t));
     crsf_rpm_t *rpm_packet = malloc(packet_size);
-    
+    if (!rpm_packet) {
+        ESP_LOGE("CRSF", "Failed to allocate memory for RPM packet");
+        return;
+    }
+
     // Set source ID
     rpm_packet->rpm_source_id = source_id;
-    
-    // Convert and copy RPM values
+
+    // Convert and copy RPM values with byte swapping
     for (size_t i = 0; i < num_values; i++) {
         rpm_packet->rpm_value[i] = int32_to_int24(bswap24(rpm_values[i]));
     }
-    
+
     // Send the data
     CRSF_send_payload(rpm_packet, dest, CRSF_TYPE_RPM, packet_size);
-    
+
     // Clean up
     free(rpm_packet);
 }
 
 void CRSF_send_temp_data(crsf_dest_t dest, crsf_temp_t *payload, size_t num_temps)
 {
-  // Calculate the actual payload size
-  size_t payload_size = sizeof(uint8_t) + (num_temps * sizeof(int16_t));
-  
-  // Process endianness for each temperature value
-  for (size_t i = 0; i < num_temps; i++) {
-    payload->temp_value[i] = __bswap16(payload->temp_value[i]);
-  }
+    // Calculate the actual payload size
+    size_t payload_size = sizeof(uint8_t) + (num_temps * sizeof(int16_t));
 
-  CRSF_send_payload(payload, dest, CRSF_TYPE_TEMP, payload_size);
+    // Process endianness for each temperature value
+    for (size_t i = 0; i < num_temps; i++) {
+        payload->temp_value[i] = __bswap16(payload->temp_value[i]);
+    }
+
+    // Send the data
+    CRSF_send_payload(payload, dest, CRSF_TYPE_TEMP, payload_size);
 }
 
 crsf_link_statistics_t CRSF_get_link_statistics()
@@ -232,4 +258,11 @@ crsf_link_statistics_t CRSF_get_link_statistics()
   crsf_link_statistics_t stats = received_link_statistics;
   xSemaphoreGive(xMutex);
   return stats;
+}
+
+
+
+// Function to check if the system is in failsafe
+bool CRSF_is_failsafe() {
+    return failsafe_flag;
 }

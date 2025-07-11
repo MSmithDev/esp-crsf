@@ -25,9 +25,6 @@ typedef struct
     uint8_t rx_pin;
 } crsf_config_t;
 
-
-
-
 /**
  * @brief structure for handling 16 channels of data, 11 bits each. Which channel is used depends on transmitter setting
  *
@@ -91,36 +88,32 @@ typedef struct __attribute__((packed))
     uint8_t satellites;   // satellites
 } crsf_gps_t;
 
-
-
-
-
-
-typedef struct __attribute__((packed)) {
+typedef struct __attribute__((packed))
+{
     uint8_t byte0;
     uint8_t byte1;
     uint8_t byte2;
 } int24_t;
 // Helper functions to convert between int32_t and int24_t
-static inline int32_t int24_to_int32(int24_t val) {
+static inline int32_t int24_to_int32(int24_t val)
+{
     int32_t result = (val.byte2 << 16) | (val.byte1 << 8) | val.byte0;
     // Sign extend if negative (bit 23 is set)
-    if (result & 0x800000) {
+    if (result & 0x800000)
+    {
         result |= 0xFF000000;
     }
     return result;
 }
 
-static inline int24_t int32_to_int24(int32_t val) {
+static inline int24_t int32_to_int24(int32_t val)
+{
     int24_t result;
     result.byte0 = val & 0xFF;
     result.byte1 = (val >> 8) & 0xFF;
     result.byte2 = (val >> 16) & 0xFF;
     return result;
 }
-
-
-
 
 /**
  * @brief struct for RPM data telemetry
@@ -131,8 +124,8 @@ static inline int24_t int32_to_int24(int32_t val) {
  */
 typedef struct __attribute__((packed))
 {
-    uint8_t    rpm_source_id;  // Identifies the source of the RPM data (e.g., 0 = Motor 1, 1 = Motor 2, etc.)
-    int24_t    rpm_value[];      // 1 - 19 RPM values with negative ones representing the motor spinning in reverse
+    uint8_t rpm_source_id; // Identifies the source of the RPM data (e.g., 0 = Motor 1, 1 = Motor 2, etc.)
+    int24_t rpm_value[];   // 1 - 19 RPM values with negative ones representing the motor spinning in reverse
 } crsf_rpm_t;
 
 /**
@@ -145,9 +138,8 @@ typedef struct __attribute__((packed))
 typedef struct __attribute__((packed))
 {
     uint8_t temp_source_id; // Identifies the source of the temperature data (e.g., 0 = FC including all ESCs, 1 = Ambient, etc.)
-    int16_t temp_value[];  // up to 20 temperature values in deci-degree (tenths of a degree) Celsius (e.g., 250 = 25.0°C, -50 = -5.0°C)
+    int16_t temp_value[];   // up to 20 temperature values in deci-degree (tenths of a degree) Celsius (e.g., 250 = 25.0°C, -50 = -5.0°C)
 } crsf_temp_t;
-
 
 /**
  * @brief struct for link statistics received from the transmitter
@@ -158,21 +150,20 @@ typedef struct __attribute__((packed))
  * @param active_antenna number of currently best antenna
  * @param rf_profile enum {4fps = 0 , 50fps, 150fps}
  * @param up_rf_power enum {0mW = 0, 10mW, 25mW, 100mW,
- * 
+ *
  * @param down_rssi Downlink RSSI (dBm * -1)
  * @param down_link_quality Downlink Package success rate / Link quality (%)
  * @param down_snr Downlink SNR (dB)
  */
 typedef struct __attribute__((packed))
 {
-    uint8_t up_rssi_ant1;      // Uplink RSSI Antenna 1 (dBm * -1)
-    uint8_t up_rssi_ant2;      // Uplink RSSI Antenna 2 (dBm * -1)
-    uint8_t up_link_quality;   // Uplink Package success rate / Link quality (%)
-    int8_t up_snr;             // Uplink SNR (dB)
-    uint8_t active_antenna;    // number of currently best antenna
-    uint8_t rf_profile;        // enum {4fps = 0 , 50fps, 150fps}
-    uint8_t up_rf_power;       // enum {0mW = 0, 10mW, 25mW, 100mW,
-                               
+    uint8_t up_rssi_ant1;    // Uplink RSSI Antenna 1 (dBm * -1)
+    uint8_t up_rssi_ant2;    // Uplink RSSI Antenna 2 (dBm * -1)
+    uint8_t up_link_quality; // Uplink Package success rate / Link quality (%)
+    int8_t up_snr;           // Uplink SNR (dB)
+    uint8_t active_antenna;  // number of currently best antenna
+    uint8_t rf_profile;      // enum {4fps = 0 , 50fps, 150fps}
+    uint8_t up_rf_power;     // enum {0mW = 0, 10mW, 25mW, 100mW,
     uint8_t down_rssi;         // Downlink RSSI (dBm * -1)
     uint8_t down_link_quality; // Downlink Package success rate / Link quality (%)
     int8_t down_snr;           // Downlink SNR (dB)
@@ -186,7 +177,7 @@ typedef enum
     CRSF_TYPE_ALTITUDE = 0x09,
     CRSF_TYPE_ATTITUDE = 0x1E,
     CRSF_TYPE_RPM = 0x0C,
-    CRSF_TYPE_TEMP= 0x0D,
+    CRSF_TYPE_TEMP = 0x0D,
     CRSF_TYPE_LINK_STATISTICS = 0x14
 } crsf_type_t;
 
@@ -229,6 +220,8 @@ void CRSF_send_gps_data(crsf_dest_t dest, crsf_gps_t *payload);
 void CRSF_send_rpm_values(crsf_dest_t dest, uint8_t source_id, int32_t *rpm_values, size_t num_values);
 
 void CRSF_send_temp_data(crsf_dest_t dest, crsf_temp_t *payload, size_t num_temps);
+
+bool CRSF_is_failsafe();
 
 /**
  * @brief get the latest link statistics received
